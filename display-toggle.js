@@ -40,29 +40,43 @@ const config = {
     {
       name: 'Left Only',          // Name for your preset
       displays: ['On', 'Off'],   // Turn on/off diplasys, can be values for codec pro
-      roles: ['Auto', 'Auto'],    // Last the output roles
+      outputRoles: ['Auto', 'Auto'],    // Last the output roles
       monitorRole: 'Single',    // Use single so the image is the same
       osd: 1
     },
     {
       name: 'Right Only',
       displays: ['Off', 'On'],
-      roles: ['Auto', 'Auto'],
+      outputRoles: ['Auto', 'Auto'],
       monitorRole: 'Single',
       osd: 2
     },
     {
       name: 'Both Off',
       displays: ['Off', 'Off'],
-      roles: ['Auto', 'Auto'],
+      outputRoles: ['Auto', 'Auto'],
       monitorRole: 'Auto',
       osd: 1
     },
     {
-      name: "Both On",
+      name: "Both On O:(First Second) M:(Auto)",
       displays: ['On', 'On'],
-      roles: ['Auto', 'Auto'],
+      outputRoles: ['Auto', 'Auto'],
       monitorRole: 'Auto',
+      osd: 1
+    },
+    {
+      name: "Both On O:(Second First) M:(Auto)",
+      displays: ['On', 'On'],
+      outputRoles: ['First', 'Second'],
+      monitorRole: 'Auto',
+      osd: 1
+    },
+    {
+      name: "Both On O:(First First) M:(Single)",
+      displays: ['On', 'On'],
+      outputRoles: ['Auto', 'Auto'],
+      monitorRole: 'Single',
       osd: 1
     }
   ]
@@ -108,14 +122,19 @@ function setMonitorRole(mode) {
   xapi.Config.Video.Monitors.set(mode);
 }
 
-function applyPreset(preset) {
-  preset.forEach((state, id) => {
-    if (state == 'On') {
-      turnOnDisplay(id + 1)
-    } else if (state == 'Off') {
-      turnOffDisplay(id + 1)
-    }
+function setOutputRoles(preset) {
+  preset.forEach ( (role, id) => {
+    xapi.Config.Video.Output.Connector[id].MonitorRole.set(role);
   })
+
+}
+
+function setDisplays(preset) {
+  preset.forEach((state, id) => {
+    if (state == 'On') { turnOnDisplay(id + 1) }
+    else if (state == 'Off') { turnOffDisplay(id + 1) }
+  })
+
 }
 
 function setWidgetActive(preset) {
@@ -133,16 +152,16 @@ async function identifyState() {
   const osd = await xapi.Status.UserInterface.OSD.Output.get()
   const monRole = await xapi.Config.Video.Monitors.get();
   let outputState = []
-  for (let i = 0; i<config.presets[0].displays.length; i++){
-    if(outputs[i].hasOwnProperty('ConnectedDevice')) {
+  for (let i = 0; i < config.presets[0].displays.length; i++) {
+    if (outputs[i].hasOwnProperty('ConnectedDevice')) {
       outputState.push(outputs[i].ConnectedDevice.hasOwnProperty('CEC') ? 'On' : 'Off')
     } else {
       outputState.push('Off')
     }
   }
-  for (let i = 0; i<config.presets.length; i++) {
-    if(JSON.stringify(outputState) == JSON.stringify(config.presets[i].displays)) {
-      if(config.presets[i].osd == osd && config.presets[i].monitorRole == monRole)
+  for (let i = 0; i < config.presets.length; i++) {
+    if (JSON.stringify(outputState) == JSON.stringify(config.presets[i].displays)) {
+      if (config.presets[i].osd == osd && config.presets[i].monitorRole == monRole)
         setWidgetActive(i)
     }
   }
@@ -157,7 +176,8 @@ function processWidget(event) {
   setWidgetActive(presetNum)
   setOSD(preset.osd);
   setMonitorRole(preset.monitorRole);
-  applyPreset(preset.displays);
+  setOutputRoles(preset.outputRoles)
+  setDisplays(preset.displays);
 }
 
 // Here we create the Button and Panel for the UI
@@ -171,12 +191,11 @@ async function createPanel() {
           <WidgetId>display-preset-${i}</WidgetId>
           <Type>Button</Type>
           <Name>${preset.name}</Name>
-          <Options>size=3</Options>
+          <Options>size=4</Options>
         </Widget>
       </Row>`;
     presets = presets.concat(row);
   })
-
   const panel = `
     <Extensions>
       <Version>1.9</Version>
@@ -193,12 +212,10 @@ async function createPanel() {
         </Page>
       </Panel>
     </Extensions>`
-
   xapi.Command.UserInterface.Extensions.Panel.Save(
     { PanelId: 'display-controls' },
     panel
   ).then(identifyState)
-
 }
 
 createPanel()
