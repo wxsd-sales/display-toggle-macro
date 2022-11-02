@@ -20,11 +20,8 @@ or implied.
  * Version: 1-0-0
  * Released: 10/24/22
  * 
- * This macro creates lets you power off selected Output displasys.
- * It works by using the Webex Devices HDMI-CEC support. The macro
- * creates a Button/Panel Ui automaatically and displays presets 
- * options which easily apply changes to the video out roles.
- * allow you to turn off displays and apply appropriate Output
+ * This maco sends perodic telemetry data of all your Webex Devices sensors
+ * and can send imediate updates when specific status changes or events occur.
  * 
  * Full Readme and source code availabel on Github:
  * https://github.com/wxsd-sales/telemetry-macro
@@ -40,29 +37,33 @@ const config = {
   standbyKey: 64,         // Your displays standbay CEC key code
   buttoName: 'Display Controls', // Name for button and page title
   presets: [        // Create your array of presets
-    { 
+    {
       name: 'Left Only',          // Name for your preset
-      displays: [ 'On', 'Off'],   // Turn on/off diplasys, can be values for codec pro
+      displays: ['On', 'Off'],   // Turn on/off diplasys, can be values for codec pro
       roles: ['Auto', 'Auto'],    // Last the output roles
-      monitorRole: ['Single']     // Use single so the image is the same
+      monitorRole: ['Single'],    // Use single so the image is the same
+      osd: 1
     },
     {
       name: 'Right Only',
-      displays: [ 'Off' , 'On'],
+      displays: ['Off', 'On'],
       roles: ['Auto', 'Auto'],
-      monitorRole: ['Single']
+      monitorRole: ['Single'],
+      osd: 2
     },
     {
       name: 'Both Off',
-      displays: [ 'Off' , 'Off'],
+      displays: ['Off', 'Off'],
       roles: ['Auto', 'Auto'],
-      monitorRole: ['Auto']
+      monitorRole: ['Auto'],
+      osd: 1
     },
     {
       name: "Both On",
-      displays: [ 'On' , 'On'],
+      displays: ['On', 'On'],
       roles: ['Auto', 'Auto'],
-      monitorRole: ['Auto']
+      monitorRole: ['Auto'],
+      osd: 1
     }
   ]
 }
@@ -72,56 +73,72 @@ const config = {
 **********************************************************/
 
 async function turnOffDisplay(id) {
-  console.log('Turning off diplay: ' +id);
+  console.log('Turning off diplay: ' + id);
   // Get the logical address
   const device = await xapi.Status.Video.Output.Connector[id].ConnectedDevice.get()
   console.log(device.CEC[0]);
   let address = 0;
-  if(device.hasOwnProperty('CEC'))
+  if (device.hasOwnProperty('CEC'))
     address = device.CEC[0].LogicalAddress
   // Instruct to enter standby
   xapi.Command.Video.CEC.Output.KeyClick(
-    { ConnectorId: id,
+    {
+      ConnectorId: id,
       LogicalAddress: address,
       Key: config.standbyKey
     })
   // Turn off CEC for that output
   xapi.Config.Video.Output.Connector[id].CEC.Mode
-      .set('Off');
+    .set('Off');
 }
 
 function turnOnDisplay(id) {
-  console.log('Turning on diplay: ' +id);
-  xapi.Config.Video.Output.Connector[id].CEC.Mode
-    .set('On');
-  xapi.Command.Video.CEC.Output.SendActiveSourceRequest(
-    { ConnectorId: id });
+  console.log('Turning on diplay: ' + id);
+  if(xapi.Config.Video.Output.Connector[id].hasOwnProperty('CEC')) {
+    xapi.Config.Video.Output.Connector[id].CEC.Mode.set('On');
+  }
+  xapi.Command.Video.CEC.Output.SendActiveSourceRequest({ ConnectorId: id });
 }
 
-function applyPreset(preset){
-  preset.forEach(( state, id ) => {
-    if (state == 'On'){
-      turnOnDisplay(id+1)
-    } else if (state == 'Off'){
-      turnOffDisplay(id+1)
+function setOSD(id) {
+  console.log('Setting OSD to Output: ' + id)
+  xapi.Config.UserInterface.OSD.Output.set(id);
+}
+
+function applyPreset(preset) {
+  preset.forEach((state, id) => {
+    if (state == 'On') {
+      turnOnDisplay(id + 1)
+    } else if (state == 'Off') {
+      turnOffDisplay(id + 1)
     }
   })
 }
 
+function setWidgetActive(preset) {
+  console.log('Setting preset ' + preset + ' active');
+  for (let i = 0; i < config.presets.length; i++) {
+    const state = (preset == i) ? 'active' : 'inactive';
+    console.log(`Setting Widget  to ${state}`)
+    xapi.Command.UserInterface.Extensions.Widget.SetValue(
+      { Value: state, WidgetId: 'display-preset-'+i });
+  }
+}
+
 // Listen for clicks on the buttons
 function processWidget(event) {
-  if (event.Type !== 'clicked' || !event.WidgetId.startsWith("display-preset")){
-    return
-  }
+  if (event.Type !== 'clicked' || !event.WidgetId.startsWith("display-preset")) { return }
   const presetNum = parseInt(event.WidgetId.slice(-1));
-  console.log('Display Preset ' + config.presets[presetNum].name + " selected. Setting: " +config.presets[presetNum].displays)
+  console.log('Display Preset ' + config.presets[presetNum].name + " selected. Setting: " + config.presets[presetNum].displays)
+  setWidgetActive(presetNum)
+  setOSD(config.presets[presetNum].osd);
   applyPreset(config.presets[presetNum].displays);
 }
 
 // Here we create the Button and Panel for the UI
 async function createPanel() {
   let presets = '';
-  config.presets.forEach( (preset, i) => {
+  config.presets.forEach((preset, i) => {
     const row = `
       <Row>
         <Options>size=3</Options>
@@ -134,7 +151,7 @@ async function createPanel() {
       </Row>`;
     presets = presets.concat(row);
   })
-  
+
   const panel = `
     <Extensions>
       <Version>1.9</Version>
@@ -153,9 +170,9 @@ async function createPanel() {
     </Extensions>`
 
   xapi.Command.UserInterface.Extensions.Panel.Save(
-    { PanelId: 'display-controls' }, 
+    { PanelId: 'display-controls' },
     panel
-  ) 
+  )
 }
 
 createPanel()
