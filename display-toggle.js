@@ -41,28 +41,28 @@ const config = {
       name: 'Left Only',          // Name for your preset
       displays: ['On', 'Off'],   // Turn on/off diplasys, can be values for codec pro
       roles: ['Auto', 'Auto'],    // Last the output roles
-      monitorRole: ['Single'],    // Use single so the image is the same
+      monitorRole: 'Single',    // Use single so the image is the same
       osd: 1
     },
     {
       name: 'Right Only',
       displays: ['Off', 'On'],
       roles: ['Auto', 'Auto'],
-      monitorRole: ['Single'],
+      monitorRole: 'Single',
       osd: 2
     },
     {
       name: 'Both Off',
       displays: ['Off', 'Off'],
       roles: ['Auto', 'Auto'],
-      monitorRole: ['Auto'],
+      monitorRole: 'Auto',
       osd: 1
     },
     {
       name: "Both On",
       displays: ['On', 'On'],
       roles: ['Auto', 'Auto'],
-      monitorRole: ['Auto'],
+      monitorRole: 'Auto',
       osd: 1
     }
   ]
@@ -75,11 +75,11 @@ const config = {
 async function turnOffDisplay(id) {
   console.log('Turning off diplay: ' + id);
   // Get the logical address
-  const device = await xapi.Status.Video.Output.Connector[id].ConnectedDevice.get()
-  console.log(device.CEC[0]);
+  const device = await xapi.Status.Video.Output.Connector[id].ConnectedDevice.get();
   let address = 0;
-  if (device.hasOwnProperty('CEC'))
+  if (device.hasOwnProperty('CEC')) {
     address = device.CEC[0].LogicalAddress
+  }
   // Instruct to enter standby
   xapi.Command.Video.CEC.Output.KeyClick(
     {
@@ -92,17 +92,20 @@ async function turnOffDisplay(id) {
     .set('Off');
 }
 
-function turnOnDisplay(id) {
+async function turnOnDisplay(id) {
   console.log('Turning on diplay: ' + id);
-  if(xapi.Config.Video.Output.Connector[id].hasOwnProperty('CEC')) {
-    xapi.Config.Video.Output.Connector[id].CEC.Mode.set('On');
-  }
+  await xapi.Config.Video.Output.Connector[id].CEC.Mode.set('On');
   xapi.Command.Video.CEC.Output.SendActiveSourceRequest({ ConnectorId: id });
 }
 
 function setOSD(id) {
   console.log('Setting OSD to Output: ' + id)
   xapi.Config.UserInterface.OSD.Output.set(id);
+}
+
+function setMonitorRole(mode) {
+  console.log('Setting Monitors Roles to: ' + mode)
+  xapi.Config.Video.Monitors.set(mode);
 }
 
 function applyPreset(preset) {
@@ -116,23 +119,45 @@ function applyPreset(preset) {
 }
 
 function setWidgetActive(preset) {
-  console.log('Setting preset ' + preset + ' active');
   for (let i = 0; i < config.presets.length; i++) {
     const state = (preset == i) ? 'active' : 'inactive';
-    console.log(`Setting Widget  to ${state}`)
     xapi.Command.UserInterface.Extensions.Widget.SetValue(
-      { Value: state, WidgetId: 'display-preset-'+i });
+      { Value: state, WidgetId: 'display-preset-' + i });
+  }
+}
+
+// Identify the currect state of the device and which 
+// configured preset matches and update the UI accordingly 
+async function identifyState() {
+  const outputs = await xapi.Status.Video.Output.Connector.get()
+  const osd = await xapi.Status.UserInterface.OSD.Output.get()
+  const monRole = await xapi.Config.Video.Monitors.get();
+  let outputState = []
+  for (let i = 0; i<config.presets[0].displays.length; i++){
+    if(outputs[i].hasOwnProperty('ConnectedDevice')) {
+      outputState.push(outputs[i].ConnectedDevice.hasOwnProperty('CEC') ? 'On' : 'Off')
+    } else {
+      outputState.push('Off')
+    }
+  }
+  for (let i = 0; i<config.presets.length; i++) {
+    if(JSON.stringify(outputState) == JSON.stringify(config.presets[i].displays)) {
+      if(config.presets[i].osd == osd && config.presets[i].monitorRole == monRole)
+        setWidgetActive(i)
+    }
   }
 }
 
 // Listen for clicks on the buttons
 function processWidget(event) {
   if (event.Type !== 'clicked' || !event.WidgetId.startsWith("display-preset")) { return }
-  const presetNum = parseInt(event.WidgetId.slice(-1));
-  console.log('Display Preset ' + config.presets[presetNum].name + " selected. Setting: " + config.presets[presetNum].displays)
+  const presetNum = parseInt(event.WidgetId.slice(-1))
+  const preset = config.presets[presetNum];
+  console.log('Display Preset ' + preset.name + " selected. Setting: " + preset.displays)
   setWidgetActive(presetNum)
-  setOSD(config.presets[presetNum].osd);
-  applyPreset(config.presets[presetNum].displays);
+  setOSD(preset.osd);
+  setMonitorRole(preset.monitorRole);
+  applyPreset(preset.displays);
 }
 
 // Here we create the Button and Panel for the UI
@@ -172,7 +197,8 @@ async function createPanel() {
   xapi.Command.UserInterface.Extensions.Panel.Save(
     { PanelId: 'display-controls' },
     panel
-  )
+  ).then(identifyState)
+
 }
 
 createPanel()
